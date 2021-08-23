@@ -44,7 +44,7 @@ class SQLDatabase(object):
         self.cursor.execute(sql_query)
         return self.cursor.fetchall()
 
-    def insert_batch(self, data: list, table_name: str):
+    def insert_in_batch(self, data: list, table_name: str):
         """Sequential inserting to defined table
         """
         if isinstance(data, dict):
@@ -62,6 +62,7 @@ class SQLDatabase(object):
             if data.shape[0] == 0:
                 return True
             fields = list(data.columns)
+            # TODO: NULL does'nt work
             values = data.fillna("NULL").to_dict(orient='index')
             values = [values[x] for x in values]
         else:
@@ -80,7 +81,7 @@ class SQLDatabase(object):
             print(data)
             return False
 
-    def delete_batch(self, data, table_name):
+    def delete_in_batch(self, data: list, table_name: str):
         """Sequential removal from defined table"""
         if isinstance(data, list):
             fields = [x for x in data[0].keys()]
@@ -103,3 +104,36 @@ class SQLDatabase(object):
         except Exception as e:
             print(e)
             return False
+
+    def duplicate_rows_select(self, table_name: str, partition: str):
+        sql_query = """
+            SELECT * FROM
+              (SELECT *, count(*)
+              OVER
+                (PARTITION BY
+                  {}
+                ) AS count
+              FROM {}) tableWithCount
+              WHERE tableWithCount.count > 1;
+        """.format(partition, table_name)
+        self.cursor.execute(sql_query)
+        return pd.DataFrame(self.cursor.fetchall())
+
+    def duplicate_rows_delete(self, table_name: str, partition: str):
+        sql_query = """
+            DELETE 
+            FROM {}
+            WHERE ctid IN 
+            (
+                SELECT ctid 
+                FROM(
+                    SELECT 
+                        *, 
+                        ctid,
+                        row_number() OVER (PARTITION BY {} ORDER BY ctid) 
+                    FROM {}
+                )s
+                WHERE row_number >= 2
+            )        
+        """.format(table_name, partition, table_name)
+        return self.cursor.execute(sql_query)

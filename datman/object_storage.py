@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import json
-from minio import Minio
 from io import BytesIO
+from minio import Minio
 
 
 class ObjectStorage(object):
