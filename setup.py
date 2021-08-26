@@ -6,7 +6,7 @@ with open("README.md", "r", encoding="utf-8") as f:
 setup(
 
     name="datman",
-    version="0.9.1",
+    version="0.9.2",
     url="https://github.com/bsekiewicz/datman",
 
     author="Bartosz Sękiewicz",

@@ -130,7 +130,7 @@ class SQLDatabase(object):
                     SELECT 
                         *, 
                         ctid,
-                        row_number() OVER (PARTITION BY {} ORDER BY ctid) 
+                        row_number() OVER (PARTITION BY {} ORDER BY ctid DESC) 
                     FROM {}
                 )s
                 WHERE row_number >= 2
