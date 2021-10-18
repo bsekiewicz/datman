@@ -44,8 +44,9 @@ class SQLDatabase(object):
         self.cursor.execute(sql_query)
         return self.cursor.fetchall()
 
-    def insert_in_batch(self, data: list, table_name: str):
-        """Sequential inserting to defined table
+    def insert_in_batch(self, data: dict or list or pd.DataFrame, table_name: str, page_size=1000):
+        """
+        Sequential inserting to defined table
         """
         if isinstance(data, dict):
             if len(data) == 0:
@@ -55,16 +56,14 @@ class SQLDatabase(object):
         elif isinstance(data, list):
             if len(data) == 0:
                 return True
-            # TODO: consistency of keys 
+            # TODO:
             fields = [x for x in data[0].keys()]
             values = data
         elif isinstance(data, pd.DataFrame):
             if data.shape[0] == 0:
                 return True
             fields = list(data.columns)
-            # TODO: NULL does'nt work
-            values = data.fillna("NULL").to_dict(orient='index')
-            values = [values[x] for x in values]
+            values = data.where(pd.notnull(data), None).to_dict(orient='records')
         else:
             print('Wrong data type!')
             return False
@@ -74,11 +73,11 @@ class SQLDatabase(object):
             sql.SQL(",").join(map(sql.Placeholder, fields)))
 
         try:
-            execute_batch(self.cursor, sql_string, values)
+            execute_batch(self.cursor, sql=sql_string, argslist=values, page_size=page_size)
             return True
         except Exception as e:
             print(e)
-            print(data)
+            # print(data)
             return False
 
     def delete_in_batch(self, data: list, table_name: str):
