@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import json
 import pandas as pd
 from psycopg2 import connect, sql
@@ -7,14 +5,17 @@ from psycopg2.extras import execute_batch
 
 
 class SQLDatabase(object):
-    """Database PostgreSQL Utilities
+    """
+    Database PostgreSQL Utilities
     """
 
+    connection_params_dict = None
     connection = None
     cursor = None
 
     def connect(self, connection_params):
-        """Create connection to SQL database
+        """
+        Create connection to SQL database
         """
         if isinstance(connection_params, str):
             connection_params_dict = json.loads(connection_params)
@@ -26,28 +27,58 @@ class SQLDatabase(object):
         if self.connection is not None:
             self.connection.close()
 
-        self.connection = connect(**connection_params_dict)
-        self.connection.autocommit = True
-        self.cursor = self.connection.cursor()
+        self.connection_params_dict = connection_params_dict
+
+        try:
+            self.connection = connect(**connection_params_dict)
+            self.connection.autocommit = True
+            self.cursor = self.connection.cursor()
+        except Exception as error:
+            raise error
+        else:
+            print('Connection to sql database established')
+
+    def reconnect(self):
+        """
+        Reconnect
+        """
+        if self.connection_params_dict is not None:
+            if self.connection is not None:
+                self.connection.close()
+
+            try:
+                self.connection = connect(**self.connection_params_dict)
+                self.connection.autocommit = True
+                self.cursor = self.connection.cursor()
+            except Exception as error:
+                raise error
+            else:
+                print('(Re)Connection to sql database established')
 
     def close(self):
-        """Close connection
+        """
+        Close connection
         """
         if self.connection is not None:
             self.connection.close()
         self.connection = None
         self.cursor = None
-
+        print('Connection to sql database closed')
+        
     def execute(self, sql_query: str):
         """Execute SQL task on connected database
         """
         self.cursor.execute(sql_query)
         return self.cursor.fetchall()
 
-    def insert_in_batch(self, data: dict or list or pd.DataFrame, table_name: str, page_size=1000):
+    def insert_batch(self, data: dict or list or pd.DataFrame, table_name: str, page_size=1000, verbose=0):
         """
         Sequential inserting to defined table
         """
+        if self.connection is not None:
+            if self.connection.closed == 1:
+                self.reconnect()
+
         if isinstance(data, dict):
             if len(data) == 0:
                 return True
@@ -56,7 +87,6 @@ class SQLDatabase(object):
         elif isinstance(data, list):
             if len(data) == 0:
                 return True
-            # TODO:
             fields = [x for x in data[0].keys()]
             values = data
         elif isinstance(data, pd.DataFrame):
@@ -77,7 +107,8 @@ class SQLDatabase(object):
             return True
         except Exception as e:
             print(e)
-            # print(data)
+            if verbose == 1:
+                print(data)
             return False
 
     def delete_in_batch(self, data: list, table_name: str):
