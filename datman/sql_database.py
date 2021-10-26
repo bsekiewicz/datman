@@ -71,7 +71,7 @@ class SQLDatabase(object):
         self.cursor.execute(sql_query)
         return self.cursor.fetchall()
 
-    def insert_batch(self, data: dict or list or pd.DataFrame, table_name: str, page_size=1000, verbose=0):
+    def insert_in_batch(self, data: dict or list or pd.DataFrame, table_name: str, page_size=1000, verbose=0):
         """
         Sequential inserting to defined table
         """
