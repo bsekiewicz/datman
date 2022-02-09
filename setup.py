@@ -25,8 +25,7 @@ setup(
 
     packages=find_packages(),
     python_requires=">=3.7",
-    install_requires=['pandas>=1.2.4', 'psycopg2-binary>=2.8.6', 'minio>=7.0.3'],
+    install_requires=['pandas>=1.3.4', 'psycopg2>=2.9.3', 'minio>=7.1.2'],
     include_package_data=False,
 
 )
-
