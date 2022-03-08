@@ -3,7 +3,6 @@ import logging
 import pandas as pd
 from psycopg2 import connect, sql
 from psycopg2.extras import execute_batch, execute_values
-from mlracing.constants import *
 
 
 class SQLDatabase(object):
