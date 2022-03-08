@@ -1,33 +1,35 @@
 import json
+import logging
 import pandas as pd
 from psycopg2 import connect, sql
-from psycopg2.extras import execute_batch
+from psycopg2.extras import execute_batch, execute_values
+from mlracing.constants import *
 
 
 class SQLDatabase(object):
     """
-    Database PostgreSQL Utilities
     """
-
-    connection_params_dict = None
     connection = None
     cursor = None
+    connection_params_dict = None
+    dbname = ''
 
-    def connect(self, connection_params):
+    def connect(self, connection_params, verbose=1):
         """
-        Create connection to SQL database
         """
         if isinstance(connection_params, str):
             connection_params_dict = json.loads(connection_params)
         elif isinstance(connection_params, dict):
             connection_params_dict = connection_params
         else:
-            raise TypeError(f"invalid connection_params type: {type(connection_params)}")
+            raise TypeError(f"Invalid connection_params type: {type(connection_params)}")
 
+        # one connection per class
         if self.connection is not None:
             self.connection.close()
 
         self.connection_params_dict = connection_params_dict
+        self.dbname = connection_params_dict.get('dbname', '')
 
         try:
             self.connection = connect(**connection_params_dict)
@@ -36,49 +38,23 @@ class SQLDatabase(object):
         except Exception as error:
             raise error
         else:
-            print('Connection to sql database established')
+            if verbose >= 1:
+                logging.info(f'Connection to {self.dbname} database established')
 
-    def reconnect(self):
+    def close(self, verbose=1):
         """
-        Reconnect
-        """
-        if self.connection_params_dict is not None:
-            if self.connection is not None:
-                self.connection.close()
-
-            try:
-                self.connection = connect(**self.connection_params_dict)
-                self.connection.autocommit = True
-                self.cursor = self.connection.cursor()
-            except Exception as error:
-                raise error
-            else:
-                print('(Re)Connection to sql database established')
-
-    def close(self):
-        """
-        Close connection
         """
         if self.connection is not None:
             self.connection.close()
+
         self.connection = None
         self.cursor = None
-        print('Connection to sql database closed')
-        
-    def execute(self, sql_query: str):
-        """Execute SQL task on connected database
-        """
-        self.cursor.execute(sql_query)
-        return self.cursor.fetchall()
+        if verbose >= 1:
+            logging.info(f'Connection to {self.dbname} database closed')
 
-    def insert_in_batch(self, data: dict or list or pd.DataFrame, table_name: str, page_size=1000, verbose=0):
+    def insert_in_batch(self, data: dict or list or pd.DataFrame, table_name: str, page_size=10000, verbose=1):
         """
-        Sequential inserting to defined table
         """
-        if self.connection is not None:
-            if self.connection.closed == 1:
-                self.reconnect()
-
         if isinstance(data, dict):
             if len(data) == 0:
                 return True
@@ -95,7 +71,8 @@ class SQLDatabase(object):
             fields = list(data.columns)
             values = data.where(pd.notnull(data), None).to_dict(orient='records')
         else:
-            print('Wrong data type!')
+            if verbose >= 1:
+                logging.warning('Wrong data type!')
             return False
 
         sql_string = sql.SQL("INSERT INTO " + table_name + " ({}) VALUES ({})").format(
@@ -106,22 +83,74 @@ class SQLDatabase(object):
             execute_batch(self.cursor, sql=sql_string, argslist=values, page_size=page_size)
             return True
         except Exception as e:
-            print(e)
-            if verbose == 1:
-                print(data)
+            if verbose >= 1:
+                logging.warning(e)
+            if verbose >= 2:
+                logging.warning(data)
+            return False
+        
+    def update_in_batch(self, data: list, columns_set: list, columns_where: list,
+                        table_name: str, page_size=10000, verbose=1):
+        """
+        """
+        if len(columns_set) == 0:
+            if verbose >= 1:
+                logging.warning('No columns_set')
             return False
 
-    def delete_in_batch(self, data: list, table_name: str):
-        """Sequential removal from defined table"""
+        if len(columns_where) == 0:
+            if verbose >= 1:
+                logging.warning('No columns_where')
+            return False
+
+        if isinstance(data, list):
+            values = [tuple(x[y] for y in data[0].keys()) for x in data]
+            fields = list(data[0].keys())
+
+            sql_fields = ', '.join(fields)
+            sql_set = ', '.join([f'{x[0]} = data.{x[1]}' for x in columns_set])
+            sql_where = ' AND '.join([f'{table_name}.{x} = data.{x}' for x in columns_where])
+        else:
+            if verbose >= 1:
+                logging.warning('Wrong data type!')
+            return False
+
+        try:
+            execute_values(
+                self.cursor,
+                f'''
+                    UPDATE {table_name} 
+                    SET
+                        {sql_set} 
+                    FROM (VALUES %s) AS data ({sql_fields}) 
+                    WHERE
+                        {sql_where} 
+                ''',
+                values,
+                page_size=page_size
+            )
+            return True
+        except Exception as e:
+            if verbose >= 1:
+                logging.warning(e)
+            if verbose >= 2:
+                logging.warning(data)
+            return False
+        
+    def delete_in_batch(self, data, table_name, page_size=1000, verbose=1):
+        """
+        """
         if isinstance(data, list):
             fields = [x for x in data[0].keys()]
             values = data
         else:
-            print('Wrong data type!')
+            if verbose >= 1:
+                logging.warning('Wrong data type!')
             return False
 
         if len(fields) != 1:
-            print('One filed is valid!')
+            if verbose >= 1:
+                logging.warning('One filed is valid!')
             return False
 
         sql_string = sql.SQL("DELETE FROM " + table_name + " WHERE {}={}").format(
@@ -129,41 +158,9 @@ class SQLDatabase(object):
             sql.SQL(",").join(map(sql.Placeholder, fields)))
 
         try:
-            execute_batch(self.cursor, sql_string, values)
+            execute_batch(self.cursor, sql=sql_string, argslist=values, page_size=page_size)
             return True
         except Exception as e:
-            print(e)
+            if verbose >= 1:
+                logging.warning(e)
             return False
-
-    def duplicate_rows_select(self, table_name: str, partition: str):
-        sql_query = """
-            SELECT * FROM
-              (SELECT *, count(*)
-              OVER
-                (PARTITION BY
-                  {}
-                ) AS count
-              FROM {}) tableWithCount
-              WHERE tableWithCount.count > 1;
-        """.format(partition, table_name)
-        self.cursor.execute(sql_query)
-        return pd.DataFrame(self.cursor.fetchall())
-
-    def duplicate_rows_delete(self, table_name: str, partition: str):
-        sql_query = """
-            DELETE 
-            FROM {}
-            WHERE ctid IN 
-            (
-                SELECT ctid 
-                FROM(
-                    SELECT 
-                        *, 
-                        ctid,
-                        row_number() OVER (PARTITION BY {} ORDER BY ctid DESC) 
-                    FROM {}
-                )s
-                WHERE row_number >= 2
-            )        
-        """.format(table_name, partition, table_name)
-        return self.cursor.execute(sql_query)
